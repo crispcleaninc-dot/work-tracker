@@ -13,6 +13,57 @@
   function store(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
   function read(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 
+  /* ---------- offline outbox ----------
+     Every change is saved on the device first, then sent to the relay.
+     If the device is offline, changes wait here and are sent in order
+     when the connection comes back. */
+  function outbox() { try { return JSON.parse(read('wt_outbox') || '[]'); } catch (e) { return []; } }
+  function saveOutbox(q) { store('wt_outbox', JSON.stringify(q)); }
+  function saveCache() { store('wt_cache', JSON.stringify(state.items)); }
+  function queue(op) { var q = outbox(); op.ts = Date.now(); q.push(op); saveOutbox(q); saveCache(); flush(); }
+  var flushing = false;
+  function isNetErr(err) { return !err.res; }
+  function flush() {
+    if (flushing || !state.pin) return Promise.resolve();
+    var q = outbox(); if (!q.length) return Promise.resolve();
+    flushing = true;
+    var idMap = JSON.parse(read('wt_idmap') || '{}');
+    function next() {
+      var q2 = outbox(); if (!q2.length) return Promise.resolve();
+      var op = q2[0], body = Object.assign({}, op.payload);
+      var mapped = body.id && idMap[body.id];
+      if (mapped) body.id = mapped;
+      if (!mapped && body.id && String(body.id).indexOf('tmp-') === 0 && op.action !== 'add') {
+        // its new item was refused by the sheet, so this change has nothing to attach to
+        var q0 = outbox(); q0.shift(); saveOutbox(q0); return next();
+      }
+      body.action = op.action;
+      return call(body).then(function (res) {
+        if (op.action === 'add' && res.id && op.tmpId) {
+          idMap[op.tmpId] = res.id; store('wt_idmap', JSON.stringify(idMap));
+          state.items.forEach(function (i) { if (i.id === op.tmpId) { i.id = res.id; i.row = res.row; i.pending = false; } });
+        }
+        var q3 = outbox(); q3.shift(); saveOutbox(q3);
+        var finalId = op.action === 'add' ? res.id : body.id;
+        var still = q3.some(function (o) { var oid = o.payload.id; return String(idMap[oid] || oid) === String(finalId); });
+        var it = byId(finalId); if (it && !still) it.pending = false;
+        saveCache();
+        return next();
+      }, function (err) {
+        if (isNetErr(err)) throw err;          // offline: keep it queued
+        if (err.res && (err.res.badPin || err.res.locked)) throw err;
+        var q3 = outbox(); q3.shift(); saveOutbox(q3); // relay refused this one change
+        if (op.action === 'add') state.items = state.items.filter(function (i) { return i.id !== op.tmpId; });
+        toast('One change could not be saved: ' + err.message);
+        return next();
+      });
+    }
+    return next().then(function () { flushing = false; render(); }, function () { flushing = false; render(); });
+  }
+  window.addEventListener('online', function () { flush().then(function () { load(); }); });
+  window.addEventListener('offline', function () { render(); });
+  setInterval(function () { if (navigator.onLine && outbox().length) flush(); }, 30000);
+
   /* ---------- relay ---------- */
   function call(payload) {
     if (!CFG.RELAY_URL) return Promise.reject(new Error('The app is not connected yet (RELAY_URL missing in config.js).'));
@@ -43,17 +94,27 @@
 
   function load(fromLock) {
     $('summary').textContent = 'Loading…';
-    return call({ action: 'list' }).then(function (res) {
-      state.items = res.items || [];
+    // send any waiting changes first so the fresh list includes them
+    return flush().then(function () { return call({ action: 'list' }); }).then(function (res) {
+      var fresh = res.items || [];
+      // keep items that were added offline and have not reached the sheet yet
+      var pendingAdds = state.items.filter(function (i) { return i.pending && String(i.id).indexOf('tmp-') === 0; });
+      state.items = fresh.concat(pendingAdds);
+      // re-apply changes still waiting in the outbox on top of the fresh list
+      outbox().forEach(function (op) {
+        var it = byId(op.payload.id); if (!it) return;
+        if (op.action === 'toggle') { it.done = op.payload.done; it.pending = true; }
+        if (op.action === 'edit') { Object.assign(it, op.payload); it.pending = true; }
+      });
       state.lastLoad = Date.now();
-      if (read('wt_pin')) store('wt_cache', JSON.stringify(state.items));
+      saveCache();
       $('lock').hidden = true; $('main').hidden = false;
       render();
     }).catch(function (err) {
-      if (err.res && (err.res.badPin || err.res.locked)) { store('wt_pin', null); store('wt_cache', null); showLock(err.message); return; }
-      if (fromLock) { $('pinMsg').textContent = err.message; return; }
+      if (err.res && (err.res.badPin || err.res.locked)) { store('wt_pin', null); showLock(err.message); return; } // unsynced changes stay saved until a good PIN is entered
+      if (fromLock && !read('wt_cache')) { $('pinMsg').textContent = navigator.onLine ? err.message : 'You are offline. Sign in once while online; after that the app works offline.'; return; }
       var cached = read('wt_cache');
-      if (cached) { state.items = JSON.parse(cached); render(); toast('Offline — showing your last saved list.'); }
+      if (cached) { if (!state.items.length) state.items = JSON.parse(cached); $('lock').hidden = true; $('main').hidden = false; render(); }
       else toast(err.message);
     });
   }
@@ -106,6 +167,7 @@
     if (d && !it.done) { var f = fmtDue(d); tags.push('<span class="tag ' + f.cls + '">' + esc(f.text) + '</span>'); }
     if (it.waiting) tags.push('<span class="tag' + (it.waiting === 'Claude' ? ' claude' : '') + '">On ' + esc(it.waiting === 'You' ? 'me' : it.waiting) + '</span>');
     if (isNew(it) && !it.done) tags.push('<span class="tag new">New</span>');
+    if (it.pending) tags.push('<span class="tag pending">Waiting to sync</span>');
     if (it.done && it.doneOn) tags.push('<span class="tag">Done ' + esc(it.doneOn) + '</span>');
     var link = safeUrl(it.link) ? ' <a class="link" href="' + esc(it.link) + '" target="_blank" rel="noopener">Open link</a>' : '';
     return '<div class="item' + (it.done ? ' done' : '') + '" data-id="' + esc(it.id) + '">' +
@@ -118,7 +180,15 @@
     var open = state.items.filter(function (i) { return !i.done; });
     var overdue = open.filter(function (i) { var d = parseDue(i.due); return d && d < today(); }).length;
     var mine = open.filter(function (i) { return i.waiting === 'You'; }).length;
+    var waiting = outbox().length;
     $('summary').textContent = open.length + ' open · ' + mine + ' on me' + (overdue ? ' · ' + overdue + ' overdue' : '');
+    var ban = $('offline');
+    if (ban) {
+      var off = !navigator.onLine;
+      ban.hidden = !off && !waiting;
+      ban.textContent = off ? 'Offline. Everything still works; ' + (waiting ? waiting + ' change' + (waiting > 1 ? 's' : '') + ' will sync when you reconnect.' : 'changes will sync when you reconnect.')
+                            : waiting + ' change' + (waiting > 1 ? 's' : '') + ' syncing…';
+    }
     var html = '';
     if (!items.length) html = '<p class="empty">' + (state.tab === 'done' ? 'Nothing checked off yet.' : 'Nothing here. Nice.') + '</p>';
     else if (state.tab === 'upcoming') html = renderUpcoming(items);
@@ -175,10 +245,11 @@
   function byId(id) { for (var i = 0; i < state.items.length; i++) if (String(state.items[i].id) === String(id)) return state.items[i]; return null; }
 
   function toggle(it) {
-    var was = it.done; it.done = !was; render();
-    call({ action: 'toggle', id: it.id, row: it.row, done: it.done }).then(function () {
-      toast(it.done ? 'Checked off' : 'Moved back to open', function () { toggle(it); });
-    }).catch(function (err) { it.done = was; render(); toast(err.message); });
+    it.done = !it.done; it.pending = true;
+    it.doneOn = it.done ? new Date().toLocaleDateString() : '';
+    queue({ action: 'toggle', payload: { id: it.id, row: it.row, done: it.done } });
+    render();
+    toast(it.done ? 'Checked off' : 'Moved back to open', function () { toggle(it); });
   }
 
   function openEditor(it) {
@@ -202,9 +273,17 @@
               due: $('fDue').value, waiting: $('fWaiting').value, link: $('fLink').value.trim() };
     var it = state.editing;
     $('sheet').hidden = true;
-    var req = it ? call(Object.assign({ action: 'edit', id: it.id, row: it.row }, p)) : call(Object.assign({ action: 'add' }, p));
-    req.then(function (res) { toast(res.duplicate ? 'Already on your list' : 'Saved'); return load(); })
-       .catch(function (err) { toast(err.message); });
+    if (!p.task) { toast('Type a task first'); return; }
+    if (it) {
+      Object.assign(it, p); it.pending = true;
+      queue({ action: 'edit', payload: Object.assign({ id: it.id, row: it.row }, p) });
+    } else {
+      var tmp = 'tmp-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      state.items.unshift(Object.assign({ id: tmp, done: false, pending: true, noted: new Date().toLocaleDateString(), source: 'Added in app' }, p));
+      queue({ action: 'add', tmpId: tmp, payload: Object.assign({ clientId: tmp }, p) });
+    }
+    render();
+    toast(navigator.onLine ? 'Saved' : 'Saved on this phone. It will sync when you are back online.');
   });
 
   $('list').addEventListener('click', function (ev) {
@@ -239,6 +318,9 @@
   $('menu').addEventListener('click', function (ev) { if (ev.target === $('menu')) $('menu').hidden = true; });
   $('sheetLink').href = CFG.SHEET_URL || '#';
   $('signOut').addEventListener('click', function () {
+    var n = outbox().length;
+    if (n && !confirm(n + ' change' + (n > 1 ? 's have' : ' has') + ' not synced yet. Signing out will throw ' + (n > 1 ? 'them' : 'it') + ' away. Sign out anyway?')) return;
+    store('wt_outbox', null); store('wt_idmap', null);
     store('wt_pin', null); store('wt_cache', null); state.pin = ''; state.items = []; $('menu').hidden = true; showLock('Signed out.');
   });
   $('installHelp').addEventListener('click', function () {
@@ -262,7 +344,7 @@
   var deferredPrompt = null;
   window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferredPrompt = e; });
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && state.pin && Date.now() - state.lastLoad > 60000) load();
+    if (!document.hidden && state.pin && navigator.onLine) { if (outbox().length) flush(); if (Date.now() - state.lastLoad > 60000) load(); }
   });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
 
