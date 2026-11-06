@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Work Tracker</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1B2951">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Work Tracker">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- Sign-in -->
+<section id="lock" class="lock" hidden>
+  <div class="lock-card">
+    <img src="icon-192.png" alt="" class="lock-logo">
+    <h1>Work Tracker</h1>
+    <p class="muted">Enter your PIN to open your list.</p>
+    <form id="pinForm" autocomplete="off">
+      <input id="pin" type="password" inputmode="numeric" placeholder="PIN" aria-label="PIN" required>
+      <label class="check"><input id="remember" type="checkbox" checked> Keep me signed in on this device</label>
+      <button type="submit" class="btn primary">Open</button>
+      <p id="pinMsg" class="msg" role="alert"></p>
+    </form>
+  </div>
+</section>
+
+<!-- Main -->
+<section id="main" hidden>
+  <header class="top">
+    <div>
+      <h1>Work Tracker</h1>
+      <p id="summary" class="sub">Loading…</p>
+    </div>
+    <div class="top-actions">
+      <button id="refreshBtn" class="icon-btn" aria-label="Refresh">&#8635;</button>
+      <button id="menuBtn" class="icon-btn" aria-label="Menu">&#8942;</button>
+    </div>
+  </header>
+
+  <div class="searchbar">
+    <input id="search" type="search" placeholder="Search tasks, clients, apps…" aria-label="Search">
+  </div>
+
+  <nav class="filters" id="filters" aria-label="Who">
+    <button data-who="all" class="chip on">Everything</button>
+    <button data-who="You" class="chip">On me</button>
+    <button data-who="Claude" class="chip">On Claude</button>
+    <button data-who="other" class="chip">Waiting on others</button>
+  </nav>
+
+  <main id="list" class="list" aria-live="polite"></main>
+
+  <button id="addBtn" class="fab" aria-label="Add a task">+</button>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="upcoming" class="on"><span>&#9200;</span>Upcoming</button>
+    <button data-tab="groups"><span>&#9776;</span>By area</button>
+    <button data-tab="new"><span>&#10024;</span>New</button>
+    <button data-tab="done"><span>&#10003;</span>Done</button>
+  </nav>
+</section>
+
+<!-- Edit / add sheet -->
+<div id="sheet" class="sheet" hidden>
+  <form id="itemForm" class="sheet-card">
+    <h2 id="sheetTitle">Add a task</h2>
+    <label>Task<textarea id="fTask" rows="3" required></textarea></label>
+    <label>Client, app or project<input id="fProject" list="projects"></label>
+    <datalist id="projects"></datalist>
+    <div class="row2">
+      <label>Area<select id="fCategory"></select></label>
+      <label>Due<input id="fDue" type="date"></label>
+    </div>
+    <div class="row2">
+      <label>Waiting on<select id="fWaiting">
+        <option>You</option><option>Claude</option><option>Issa</option><option>Client</option><option>Other</option>
+      </select></label>
+      <label>Link<input id="fLink" type="url" placeholder="https://"></label>
+    </div>
+    <p id="fMeta" class="muted small"></p>
+    <div class="sheet-actions">
+      <button type="button" id="cancelBtn" class="btn">Cancel</button>
+      <button type="submit" class="btn primary">Save</button>
+    </div>
+  </form>
+</div>
+
+<!-- Menu -->
+<div id="menu" class="sheet" hidden>
+  <div class="sheet-card">
+    <h2>Menu</h2>
+    <a id="sheetLink" class="btn block" target="_blank" rel="noopener">Open the Google Sheet</a>
+    <button id="installHelp" class="btn block">Add to home screen</button>
+    <button id="signOut" class="btn block danger">Sign out on this device</button>
+    <p class="muted small">Your tasks are not stored in this app's code. They live in your Google Sheet and load only after your PIN is checked.</p>
+    <button id="closeMenu" class="btn block">Close</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
