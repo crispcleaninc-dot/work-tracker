@@ -12,4 +12,4 @@ A home-screen app (installable web app) for the Running To-Do List.
 - `index.html`, `app.js`, `styles.css`: the app
 - `sw.js`, `manifest.webmanifest`, `icons/`: home-screen install and offline start
 - `config.js`: the relay address (no data)
-- `relay/`: the Apps Script code that runs in your Google account (copy only; the live copy lives in Apps Script)
+- The relay is the "Work Tracker Relay" Apps Script project in the crispcleaninc Google account (not stored here). It checks the PIN and reads/writes the sheet, and applies nightly "WT Inbox" updates every 2 hours.
