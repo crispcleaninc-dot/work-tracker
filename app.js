@@ -263,6 +263,7 @@
     $('fWaiting').value = it ? (it.waiting || 'You') : 'You';
     $('fLink').value = it ? (it.link || '') : '';
     $('fMeta').textContent = it ? [it.noted && 'Noted ' + it.noted, it.source, it.updated && 'Updated ' + it.updated].filter(Boolean).join(' · ') : '';
+    $('doRow').hidden = !it;
     $('sheet').hidden = false;
     setTimeout(function () { $('fTask').focus(); }, 50);
   }
@@ -284,6 +285,64 @@
     }
     render();
     toast(navigator.onLine ? 'Saved' : 'Saved on this phone. It will sync when you are back online.');
+  });
+
+  /* ---------- hand a task to Claude or to the cowork ---------- */
+  function taskPrompt(it) {
+    return ['From my Work Tracker (item ' + it.id + '). Please do this task for me now.',
+      'Task: ' + it.task,
+      it.project ? 'Client / project: ' + it.project : '',
+      it.due ? 'Due: ' + it.due : '',
+      it.link ? 'Link: ' + it.link : '',
+      'Follow my saved standing rules. Do everything you can yourself. Ask me first before sending any email, text or invite, paying, submitting, or deleting anything, and before anything with figures, tax, legal content, deadlines or client information goes out.',
+      'When you finish, tell me what you did and what is left, so I can check it off.'].filter(Boolean).join('\n');
+  }
+  function markClaude(it) {
+    if (it.waiting === 'Claude') return;
+    it.waiting = 'Claude'; it.pending = true;
+    queue({ action: 'edit', payload: { id: it.id, row: it.row, waiting: 'Claude' } });
+    render();
+  }
+  $('doClaude').addEventListener('click', function () {
+    var it = state.editing; if (!it) return;
+    window.open('https://claude.ai/new?q=' + encodeURIComponent(taskPrompt(it)), '_blank', 'noopener');
+    markClaude(it); $('sheet').hidden = true;
+  });
+  function coworkCfg() { try { return JSON.parse(read('wt_cowork') || 'null'); } catch (e) { return null; } }
+  function coworkQueue() { try { return JSON.parse(read('wt_cowork_q') || '[]'); } catch (e) { return []; } }
+  function sendCowork(job) {
+    var cfg = coworkCfg(); if (!cfg) return Promise.reject(new Error('no cowork'));
+    return fetch(cfg.url.replace(/\/+$/, '') + '/api/v1/tasks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.token },
+      body: JSON.stringify({ objective: job.objective, client_id: job.client_id })
+    }).then(function (r) { if (!r.ok) { var e = new Error(r.status === 401 ? 'Your cowork did not accept the device token.' : 'Cowork error ' + r.status); e.res = r; throw e; } return r.json(); });
+  }
+  function flushCowork() {
+    var q = coworkQueue(); if (!q.length || !coworkCfg()) return Promise.resolve();
+    return sendCowork(q[0]).then(function () { var q2 = coworkQueue(); q2.shift(); store('wt_cowork_q', JSON.stringify(q2)); return flushCowork(); },
+      function (err) { if (err.res) { var q2 = coworkQueue(); q2.shift(); store('wt_cowork_q', JSON.stringify(q2)); toast(err.message); } });
+  }
+  window.addEventListener('online', function () { flushCowork(); });
+  $('doCowork').addEventListener('click', function () {
+    var it = state.editing; if (!it) return;
+    if (!coworkCfg()) { toast('Connect your cowork first: Menu, then "Connect my cowork".'); return; }
+    var job = { objective: taskPrompt(it), client_id: 'wt-' + String(it.id).replace(/[^A-Za-z0-9-]/g, '') + '-' + Date.now().toString(36) };
+    $('sheet').hidden = true; markClaude(it);
+    sendCowork(job).then(function () { toast('Sent to your cowork.'); }, function (err) {
+      if (err.res) { toast(err.message); return; }
+      var q = coworkQueue(); q.push(job); store('wt_cowork_q', JSON.stringify(q));
+      toast('Your cowork is not reachable right now. It will be sent when it is.');
+    });
+  });
+  (function () { var c = coworkCfg(); if (c) { $('cwUrl').value = c.url; $('cwMsg').textContent = 'Connected to ' + c.url; } })();
+  $('cwSave').addEventListener('click', function () {
+    var url = $('cwUrl').value.trim(), token = $('cwToken').value.trim();
+    if (!/^https:\/\//i.test(url) || !token) { $('cwMsg').textContent = 'Enter the https address and the device token.'; return; }
+    store('wt_cowork', JSON.stringify({ url: url, token: token })); $('cwToken').value = '';
+    $('cwMsg').textContent = 'Saved. Checking…';
+    fetch(url.replace(/\/+$/, '') + '/api/v1/tasks', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function (r) { $('cwMsg').textContent = r.ok ? 'Connected to your cowork.' : (r.status === 401 ? 'Saved, but the cowork did not accept that token.' : 'Saved. Cowork answered ' + r.status + '.'); flushCowork(); },
+            function () { $('cwMsg').textContent = 'Saved. The cowork is not reachable right now (is the PC on and Tailscale signed in?).'; });
   });
 
   $('list').addEventListener('click', function (ev) {
@@ -320,7 +379,7 @@
   $('signOut').addEventListener('click', function () {
     var n = outbox().length;
     if (n && !confirm(n + ' change' + (n > 1 ? 's have' : ' has') + ' not synced yet. Signing out will throw ' + (n > 1 ? 'them' : 'it') + ' away. Sign out anyway?')) return;
-    store('wt_outbox', null); store('wt_idmap', null);
+    store('wt_outbox', null); store('wt_idmap', null); store('wt_cowork', null); store('wt_cowork_q', null);
     store('wt_pin', null); store('wt_cache', null); state.pin = ''; state.items = []; $('menu').hidden = true; showLock('Signed out.');
   });
   $('installHelp').addEventListener('click', function () {

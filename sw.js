@@ -1,6 +1,6 @@
 /* Caches only the app's own files so it opens fast and offline.
    Task data from the relay is never cached here. */
-var CACHE = 'wt-v3';
+var CACHE = 'wt-v4';
 var FILES = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
              'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 

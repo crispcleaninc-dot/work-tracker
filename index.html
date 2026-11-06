@@ -85,6 +85,11 @@
       <label>Link<input id="fLink" type="url" placeholder="https://"></label>
     </div>
     <p id="fMeta" class="muted small"></p>
+    <div id="doRow" class="do-row" hidden>
+      <button type="button" id="doClaude" class="btn block claude">Have Claude do this</button>
+      <button type="button" id="doCowork" class="btn block">Send to my cowork</button>
+      <p class="muted small">Claude does what it can and asks you before anything is sent, paid, submitted or deleted.</p>
+    </div>
     <div class="sheet-actions">
       <button type="button" id="cancelBtn" class="btn">Cancel</button>
       <button type="submit" class="btn primary">Save</button>
@@ -98,6 +103,12 @@
     <h2>Menu</h2>
     <a id="sheetLink" class="btn block" target="_blank" rel="noopener">Open the Google Sheet</a>
     <button id="installHelp" class="btn block">Add to home screen</button>
+    <details class="cowork-setup"><summary>Connect my cowork</summary>
+      <label>Cowork address<input id="cwUrl" type="url" placeholder="https://your-pc.ts.net"></label>
+      <label>Phone device token<input id="cwToken" type="password" autocomplete="off"></label>
+      <button type="button" id="cwSave" class="btn block">Save on this device</button>
+      <p id="cwMsg" class="muted small">In your cowork: Devices → name it "Work Tracker", type Dashboard → Add device, then copy the token. The address is your cowork's phone link (ends in .ts.net). Both stay on this device only.</p>
+    </details>
     <button id="signOut" class="btn block danger">Sign out on this device</button>
     <p class="muted small">Your tasks are not stored in this app's code. They live in your Google Sheet and load only after your PIN is checked.</p>
     <button id="closeMenu" class="btn block">Close</button>

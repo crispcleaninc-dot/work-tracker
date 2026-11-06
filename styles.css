@@ -96,3 +96,9 @@ button{font:inherit;cursor:pointer}
 /* offline mode */
 .offline { margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; background: #fff4d6; color: #6b4e00; font-size: 13px; }
 .tag.pending { background: #fff4d6; color: #6b4e00; }
+
+/* hand a task to Claude or the cowork */
+.do-row { margin: 8px 0 4px; display: grid; gap: 8px; }
+.btn.claude { background: #c9a24a; color: #1b2550; font-weight: 600; }
+.cowork-setup { margin: 8px 0; }
+.cowork-setup summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
