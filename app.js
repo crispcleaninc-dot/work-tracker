@@ -6,7 +6,7 @@
 
   var CFG = window.WT_CONFIG || {};
   var AREAS = ['Urgent', 'Legal, housing and money', 'Tax clients', 'Apps and builds', 'Spec only', 'Content and ideas'];
-  var state = { pin: '', items: [], tab: 'upcoming', who: 'all', q: '', editing: null, lastLoad: 0 };
+  var state = { pin: '', items: [], tab: 'upcoming', who: 'all', q: '', editing: null, lastLoad: 0, videos: [], vLoad: 0, vf: 'soon', vseries: '' };
   var $ = function (id) { return document.getElementById(id); };
 
   /* ---------- storage (only if "keep me signed in") ---------- */
@@ -176,6 +176,9 @@
   }
 
   function render() {
+    var vmode = state.tab === 'videos';
+    $('filters').hidden = vmode; $('vfilters').hidden = !vmode; $('addBtn').hidden = vmode;
+    if (vmode) { renderVideos(); return; }
     var items = filtered();
     var open = state.items.filter(function (i) { return !i.done; });
     var overdue = open.filter(function (i) { var d = parseDue(i.due); return d && d < today(); }).length;
@@ -240,6 +243,75 @@
     state.items.forEach(function (i) { if (i.category && cats.indexOf(i.category) < 0) cats.push(i.category); });
     $('fCategory').innerHTML = cats.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
   }
+
+
+  /* ---------- videos page (FNF / Community Covenant schedule) ----------
+     Loads from the relay ("videos" action, PIN checked there). Cached on the
+     device so it opens offline. Read-only: Claude keeps the sheet updated. */
+  try { state.videos = JSON.parse(read('wt_videos') || '[]'); } catch (e) { state.videos = []; }
+  function loadVideos(force) {
+    if (!force && Date.now() - state.vLoad < 120000 && state.videos.length) return Promise.resolve();
+    if (!navigator.onLine) return Promise.resolve();
+    return call({ action: 'videos' }).then(function (res) {
+      state.videos = res.videos || []; state.vLoad = Date.now();
+      store('wt_videos', JSON.stringify(state.videos));
+      if (state.tab === 'videos') render();
+    }, function (err) { if (state.tab === 'videos') toast('Videos: ' + err.message); });
+  }
+  function vDate(v) { return parseDue(v['Date']); }
+  function vLive(v) { return /live/i.test(v['Facebook (FNF)'] || '') || /public/i.test(v['YouTube (Community Covenant)'] || ''); }
+  function vFiltered() {
+    var q = state.q.toLowerCase(), t = today();
+    return state.videos.filter(function (v) {
+      var d = vDate(v), next = (v['Next step'] || '').toLowerCase(), yt = (v['YouTube (Community Covenant)'] || '').toLowerCase();
+      if (state.vseries && v['Series'] !== state.vseries) return false;
+      if (state.vf === 'soon' && d && d < t) return false;
+      if (state.vf === 'me' && next.indexOf('your ok') < 0 && next.indexOf('waiting on your') < 0) return false;
+      if (state.vf === 'yt' && yt.indexOf('needed') < 0) return false;
+      if (state.vf === 'live' && !vLive(v)) return false;
+      if (q && [v['Title'], v['Series'], v['Type'], v['Next step']].join(' ').toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+  function stTag(label, val) {
+    var s = String(val || '—'), cls = /live|public|done/i.test(s) ? 'ok' : /schedul/i.test(s) ? 'due' : /needed|waiting/i.test(s) ? 'over' : '';
+    return '<span class="tag ' + cls + '">' + esc(label) + ': ' + esc(s) + '</span>';
+  }
+  function videoHtml(v) {
+    var link = safeUrl(v['YouTube link']) ? ' <a class="link" href="' + esc(v['YouTube link']) + '" target="_blank" rel="noopener">Watch on YouTube</a>' : '';
+    var part = v['Part'] ? (/cover to cover/i.test(v['Series'] || '') ? ' · Day ' : ' · Part ') + esc(v['Part']) : '';
+    var built = v['Built'] && v['Built'] !== 'Yes' ? '<span class="tag">Built: ' + esc(v['Built']) + '</span>' : '';
+    var next = v['Next step'] && !/^done/i.test(v['Next step']) ? '<p class="vnext">Next: ' + esc(v['Next step']) + '</p>' : '';
+    return '<div class="item video"><div class="body"><p class="vmeta">' + esc(v['Time (ET)'] || '') + ' · ' + esc(v['Type'] || '') + ' · ' + esc(v['Series'] || '') + part + '</p>' +
+      '<p class="t">' + esc(v['Title']) + '</p><div class="meta">' + stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', v['YouTube (Community Covenant)']) + built + link + '</div>' + next + '</div></div>';
+  }
+  function renderVideos() {
+    var sel = $('vseries'), names = {};
+    state.videos.forEach(function (v) { if (v['Series']) names[v['Series']] = 1; });
+    var opts = '<option value="">All series</option>' + Object.keys(names).sort().map(function (n) { return '<option' + (n === state.vseries ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+    if (sel.innerHTML !== opts) sel.innerHTML = opts;
+    var list = vFiltered(), t = today();
+    var upcoming = state.videos.filter(function (v) { var d = vDate(v); return d && d >= t; }).length;
+    var needYt = state.videos.filter(function (v) { return /needed/i.test(v['YouTube (Community Covenant)'] || ''); }).length;
+    var onMe = state.videos.filter(function (v) { return /your ok|waiting on your/i.test(v['Next step'] || ''); }).length;
+    $('summary').textContent = state.videos.length + ' videos · ' + upcoming + ' coming up · ' + needYt + ' need YouTube' + (onMe ? ' · ' + onMe + ' waiting on me' : '');
+    if (!state.videos.length) { $('list').innerHTML = '<p class="empty">' + (navigator.onLine ? 'Loading videos…' : 'Open this page once while online to load your videos.') + '</p>'; return; }
+    if (!list.length) { $('list').innerHTML = '<p class="empty">No videos match.</p>'; return; }
+    var html = '', last = '';
+    list.forEach(function (v) {
+      var d = vDate(v), key = d ? d.toDateString() : 'No date';
+      if (key !== last) { last = key; html += '<p class="sublabel">' + esc(d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() !== t.getFullYear() ? 'numeric' : undefined }) : 'No date') + (d && d.getTime() === t.getTime() ? ' · Today' : '') + '</p>'; }
+      html += videoHtml(v);
+    });
+    $('list').innerHTML = html;
+  }
+  $('vfilters').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button'); if (!b) return;
+    state.vf = b.getAttribute('data-vf');
+    Array.prototype.forEach.call($('vfilters').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); });
+    render();
+  });
+  $('vseries').addEventListener('change', function (ev) { state.vseries = ev.target.value; render(); });
 
   /* ---------- actions ---------- */
   function byId(id) { for (var i = 0; i < state.items.length; i++) if (String(state.items[i].id) === String(id)) return state.items[i]; return null; }
@@ -360,6 +432,7 @@
     state.tab = b.getAttribute('data-tab');
     Array.prototype.forEach.call($('tabs').children, function (x) { x.classList.toggle('on', x === b); });
     render(); window.scrollTo(0, 0);
+    if (state.tab === 'videos') loadVideos();
   });
   $('filters').addEventListener('click', function (ev) {
     var b = ev.target.closest('button'); if (!b) return;
@@ -371,7 +444,7 @@
   $('addBtn').addEventListener('click', function () { openEditor(null); });
   $('cancelBtn').addEventListener('click', function () { $('sheet').hidden = true; });
   $('sheet').addEventListener('click', function (ev) { if (ev.target === $('sheet')) $('sheet').hidden = true; });
-  $('refreshBtn').addEventListener('click', function () { load(); });
+  $('refreshBtn').addEventListener('click', function () { if (state.tab === 'videos') loadVideos(true); else load(); });
   $('menuBtn').addEventListener('click', function () { $('menu').hidden = false; });
   $('closeMenu').addEventListener('click', function () { $('menu').hidden = true; });
   $('menu').addEventListener('click', function (ev) { if (ev.target === $('menu')) $('menu').hidden = true; });
@@ -380,7 +453,7 @@
     var n = outbox().length;
     if (n && !confirm(n + ' change' + (n > 1 ? 's have' : ' has') + ' not synced yet. Signing out will throw ' + (n > 1 ? 'them' : 'it') + ' away. Sign out anyway?')) return;
     store('wt_outbox', null); store('wt_idmap', null); store('wt_cowork', null); store('wt_cowork_q', null);
-    store('wt_pin', null); store('wt_cache', null); state.pin = ''; state.items = []; $('menu').hidden = true; showLock('Signed out.');
+    store('wt_pin', null); store('wt_cache', null); store('wt_videos', null); state.videos = []; state.pin = ''; state.items = []; $('menu').hidden = true; showLock('Signed out.');
   });
   $('installHelp').addEventListener('click', function () {
     if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; return; }

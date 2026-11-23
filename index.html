@@ -45,7 +45,7 @@
   </header>
 
   <div class="searchbar">
-    <input id="search" type="search" placeholder="Search tasks, clients, apps…" aria-label="Search">
+    <input id="search" type="search" placeholder="Search tasks, clients, apps, videos…" aria-label="Search">
   </div>
 
   <nav class="filters" id="filters" aria-label="Who">
@@ -53,6 +53,15 @@
     <button data-who="You" class="chip">On me</button>
     <button data-who="Claude" class="chip">On Claude</button>
     <button data-who="other" class="chip">Waiting on others</button>
+  </nav>
+
+  <nav class="filters" id="vfilters" aria-label="Videos" hidden>
+    <button data-vf="soon" class="chip on">Coming up</button>
+    <button data-vf="all" class="chip">All</button>
+    <button data-vf="me" class="chip">Waiting on me</button>
+    <button data-vf="yt" class="chip">Needs YouTube</button>
+    <button data-vf="live" class="chip">Live / public</button>
+    <select id="vseries" class="chip" aria-label="Series"><option value="">All series</option></select>
   </nav>
 
   <main id="list" class="list" aria-live="polite"></main>
@@ -64,6 +73,7 @@
     <button data-tab="groups"><span>&#9776;</span>By area</button>
     <button data-tab="new"><span>&#10024;</span>New</button>
     <button data-tab="done"><span>&#10003;</span>Done</button>
+    <button data-tab="videos"><span>&#127909;</span>Videos</button>
   </nav>
 </section>
 

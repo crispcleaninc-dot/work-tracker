@@ -102,3 +102,11 @@ button{font:inherit;cursor:pointer}
 .btn.claude { background: #c9a24a; color: #1b2550; font-weight: 600; }
 .cowork-setup { margin: 8px 0; }
 .cowork-setup summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+
+/* videos page */
+.tabs button{font-size:11px}
+.item.video .body{cursor:default}
+.vmeta{margin:0 0 2px;font-size:12px;color:var(--muted)}
+.vnext{margin:6px 0 0;font-size:12px;color:var(--muted)}
+.tag.ok{background:#e6f4ea;color:#1e6b34}
+#vfilters select.chip{appearance:auto;padding-right:6px}
