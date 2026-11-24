@@ -312,21 +312,24 @@
     if (ban) { ban.hidden = false; ban.textContent = bits.join(' · '); ban.className = 'offline' + (bad.length ? ' warn' : ' good'); }
     if (!state.videos.length) { $('list').innerHTML = '<p class="empty">' + (navigator.onLine ? 'Loading videos…' : 'Open this page once while online to load your videos.') + '</p>'; return; }
     if (!list.length) { $('list').innerHTML = '<p class="empty">No videos match.</p>'; return; }
-    var html = '', last = '';
+    var html = '', last = '', more = list.length - (state.vShow || 150);
+    if (more > 0) list = list.slice(0, state.vShow || 150);
     list.forEach(function (v) {
       var d = vDate(v), key = d ? d.toDateString() : 'No date';
       if (key !== last) { last = key; html += '<p class="sublabel">' + esc(d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() !== t.getFullYear() ? 'numeric' : undefined }) : 'No date') + (d && d.getTime() === t.getTime() ? ' · Today' : '') + '</p>'; }
       html += videoHtml(v);
     });
+    if (more > 0) html += '<button type="button" class="btn block" id="vMore">Show ' + Math.min(more, 150) + ' more (' + more + ' left) — or pick a series / search</button>';
     $('list').innerHTML = html;
+    var mb = $('vMore'); if (mb) mb.onclick = function () { state.vShow = (state.vShow || 150) + 150; renderVideos(); };
   }
   $('vfilters').addEventListener('click', function (ev) {
     var b = ev.target.closest('button'); if (!b) return;
-    state.vf = b.getAttribute('data-vf');
+    state.vf = b.getAttribute('data-vf'); state.vShow = 150;
     Array.prototype.forEach.call($('vfilters').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); });
     render();
   });
-  $('vseries').addEventListener('change', function (ev) { state.vseries = ev.target.value; render(); });
+  $('vseries').addEventListener('change', function (ev) { state.vseries = ev.target.value; state.vShow = 150; render(); });
 
   /* ---------- tap a video: go where the work is ---------- */
   function ytIdOf(s) { var m = String(s || '').match(/(?:youtu\.be\/|[?&]v=|shorts\/|video\/|embed\/)([A-Za-z0-9_-]{11})/); return m ? m[1] : ''; }
@@ -348,7 +351,7 @@
     else a('YouTube Studio content', 'https://studio.youtube.com/');
     a('Channel analytics', 'https://studio.youtube.com/channel/analytics');
     a(/live/i.test(v['Facebook (FNF)'] || '') ? 'See it in the FNF group' : 'FNF scheduled posts', /live/i.test(v['Facebook (FNF)'] || '') ? 'https://www.facebook.com/groups/faithandfindingsforum' : 'https://www.facebook.com/groups/faithandfindingsforum/scheduled_posts');
-    a('Drive folder', safeUrl(v['Drive link']));
+    a('Files in Drive (this day\'s folder)', safeUrl(v['Drive link']));
     $('vaTitle').textContent = v['Title'] || 'Video';
     $('vaMeta').innerHTML = stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', vYt(v)) +
       (v['YT views'] !== undefined && v['YT views'] !== '' ? '<span class="tag">' + esc(v['YT views']) + ' views · ' + esc(v['YT likes'] || 0) + ' likes</span>' : '') +
