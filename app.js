@@ -342,27 +342,46 @@
   function openVideo(v) {
     var id = ytIdOf(v['YouTube link']), acts = [];
     function a(label, url, cls) { if (url) acts.push('<a class="btn block' + (cls ? ' ' + cls : '') + '" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(label) + '</a>'); }
+    a('Open the chat working on this', safeUrl(v['Chat link']), 'primary');
     a('Watch on YouTube', safeUrl(v['YouTube link']));
     if (id) { a('Edit in YouTube Studio', 'https://studio.youtube.com/video/' + id + '/edit'); a('This video\'s analytics', 'https://studio.youtube.com/video/' + id + '/analytics/tab-overview/period-default'); a('Comments (pin / reply)', 'https://studio.youtube.com/video/' + id + '/comments'); }
     else a('YouTube Studio content', 'https://studio.youtube.com/');
     a('Channel analytics', 'https://studio.youtube.com/channel/analytics');
     a(/live/i.test(v['Facebook (FNF)'] || '') ? 'See it in the FNF group' : 'FNF scheduled posts', /live/i.test(v['Facebook (FNF)'] || '') ? 'https://www.facebook.com/groups/faithandfindingsforum' : 'https://www.facebook.com/groups/faithandfindingsforum/scheduled_posts');
-    a('Open the chat working on this', safeUrl(v['Chat link']));
     a('Drive folder', safeUrl(v['Drive link']));
     $('vaTitle').textContent = v['Title'] || 'Video';
     $('vaMeta').innerHTML = stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', vYt(v)) +
       (v['YT views'] !== undefined && v['YT views'] !== '' ? '<span class="tag">' + esc(v['YT views']) + ' views · ' + esc(v['YT likes'] || 0) + ' likes</span>' : '') +
       (v['Next step'] ? '<p class="vnext">Next: ' + esc(v['Next step']) + '</p>' : '');
     $('vaLinks').innerHTML = acts.join('');
-    state.vOpen = v; $('vsheet').hidden = false;
+    $('vaClaude').textContent = 'Have Claude finish this'; $('vaEdit').hidden = true;
+    state.vOpen = v; state.tOpen = null; $('vsheet').hidden = false;
   }
   $('list').addEventListener('click', function (ev) {
     var card = ev.target.closest('.item.video'); if (!card || ev.target.closest('a')) return;
     var v = state.videos[Number(card.getAttribute('data-v'))]; if (v) openVideo(v);
   });
+  function openTask(it) {
+    var acts = [], u = safeUrl(it.link);
+    if (u) acts.push('<a class="btn block primary" href="' + esc(u) + '" target="_blank" rel="noopener">Go to it</a>');
+    if (safeUrl(it.chat)) acts.push('<a class="btn block" href="' + esc(it.chat) + '" target="_blank" rel="noopener">Open the chat working on this</a>');
+    $('vaTitle').textContent = it.task || 'Task';
+    var d = parseDue(it.due);
+    $('vaMeta').innerHTML = (it.project ? '<span class="tag proj">' + esc(it.project) + '</span>' : '') +
+      (d ? '<span class="tag due">Due ' + esc(fmtDue(d).text) + '</span>' : '') +
+      (it.waiting ? '<span class="tag">On ' + esc(it.waiting === 'You' ? 'me' : it.waiting) + '</span>' : '') +
+      (!u ? '<p class="vnext">No link saved for this one yet. "Have Claude do this" starts it for you.</p>' : '');
+    $('vaLinks').innerHTML = acts.join('');
+    $('vaClaude').textContent = 'Have Claude do this';
+    $('vaEdit').hidden = false;
+    state.vOpen = null; state.tOpen = it; $('vsheet').hidden = false;
+  }
+  $('vaEdit').addEventListener('click', function () { var it = state.tOpen; $('vsheet').hidden = true; if (it) openEditor(it); });
   $('vaClaude').addEventListener('click', function () {
-    var v = state.vOpen; if (!v) return;
-    window.open('https://claude.ai/new?q=' + encodeURIComponent(videoPrompt(v)), '_blank', 'noopener'); $('vsheet').hidden = true;
+    var v = state.vOpen, it = state.tOpen;
+    if (v) window.open('https://claude.ai/new?q=' + encodeURIComponent(videoPrompt(v)), '_blank', 'noopener');
+    else if (it) { window.open('https://claude.ai/new?q=' + encodeURIComponent(taskPrompt(it)), '_blank', 'noopener'); markClaude(it); }
+    $('vsheet').hidden = true;
   });
   $('vaRefresh').addEventListener('click', function () { $('vsheet').hidden = true; syncNow(); });
   $('vaClose').addEventListener('click', function () { $('vsheet').hidden = true; });
@@ -476,7 +495,7 @@
   $('list').addEventListener('click', function (ev) {
     var el = ev.target.closest('[data-act]'); if (!el || ev.target.closest('a')) return;
     var it = byId(el.closest('.item').getAttribute('data-id')); if (!it) return;
-    if (el.getAttribute('data-act') === 'toggle') toggle(it); else openEditor(it);
+    if (el.getAttribute('data-act') === 'toggle') toggle(it); else openTask(it);
   });
   $('list').addEventListener('toggle', function (ev) {
     var d = ev.target; if (!d.matches || !d.matches('details.group')) return;
