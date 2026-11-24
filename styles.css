@@ -105,8 +105,15 @@ button{font:inherit;cursor:pointer}
 
 /* videos page */
 .tabs button{font-size:11px}
-.item.video .body{cursor:default}
+.item.video{cursor:pointer}.item.video .body{cursor:pointer}
 .vmeta{margin:0 0 2px;font-size:12px;color:var(--muted)}
 .vnext{margin:6px 0 0;font-size:12px;color:var(--muted)}
 .tag.ok{background:#e6f4ea;color:#1e6b34}
 #vfilters select.chip{appearance:auto;padding-right:6px}
+
+.vtap{margin:6px 0 0;font-size:12px;color:var(--navy);font-weight:600}
+.offline.good{background:rgba(255,255,255,.12);color:#fff}
+.offline.warn{background:#fbe3e1;color:#8a1c12}
+#refreshBtn.spin{animation:wtspin 1s linear infinite}
+@keyframes wtspin{to{transform:rotate(360deg)}}
+#vaMeta{margin:4px 0 8px}

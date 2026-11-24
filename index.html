@@ -96,6 +96,7 @@
     </div>
     <p id="fMeta" class="muted small"></p>
     <div id="doRow" class="do-row" hidden>
+      <a id="doLink" class="btn block" target="_blank" rel="noopener" hidden>Go to it (open the link)</a>
       <button type="button" id="doClaude" class="btn block claude">Have Claude do this</button>
       <button type="button" id="doCowork" class="btn block">Send to my cowork</button>
       <p class="muted small">Claude does what it can and asks you before anything is sent, paid, submitted or deleted.</p>
@@ -105,6 +106,18 @@
       <button type="submit" class="btn primary">Save</button>
     </div>
   </form>
+</div>
+
+<!-- Video actions -->
+<div id="vsheet" class="sheet" hidden>
+  <div class="sheet-card">
+    <h2 id="vaTitle">Video</h2>
+    <div id="vaMeta" class="meta"></div>
+    <div id="vaLinks"></div>
+    <button type="button" id="vaClaude" class="btn block claude">Have Claude finish this</button>
+    <button type="button" id="vaRefresh" class="btn block">Sync now (Drive + YouTube)</button>
+    <button type="button" id="vaClose" class="btn block">Just looking — close</button>
+  </div>
 </div>
 
 <!-- Menu -->

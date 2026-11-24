@@ -187,6 +187,7 @@
     $('summary').textContent = open.length + ' open · ' + mine + ' on me' + (overdue ? ' · ' + overdue + ' overdue' : '');
     var ban = $('offline');
     if (ban) {
+      ban.className = 'offline';
       var off = !navigator.onLine;
       ban.hidden = !off && !waiting;
       ban.textContent = off ? 'Offline. Everything still works; ' + (waiting ? waiting + ' change' + (waiting > 1 ? 's' : '') + ' will sync when you reconnect.' : 'changes will sync when you reconnect.')
@@ -249,17 +250,21 @@
      Loads from the relay ("videos" action, PIN checked there). Cached on the
      device so it opens offline. Read-only: Claude keeps the sheet updated. */
   try { state.videos = JSON.parse(read('wt_videos') || '[]'); } catch (e) { state.videos = []; }
+  try { var vm = JSON.parse(read('wt_vmeta') || '{}'); state.yt = vm.yt || null; state.lastSync = vm.lastSync || null; state.vLoad = 0; } catch (e) {}
   function loadVideos(force) {
     if (!force && Date.now() - state.vLoad < 120000 && state.videos.length) return Promise.resolve();
     if (!navigator.onLine) return Promise.resolve();
     return call({ action: 'videos' }).then(function (res) {
       state.videos = res.videos || []; state.vLoad = Date.now();
+      state.yt = res.yt || null; state.lastSync = res.lastSync || null;
       store('wt_videos', JSON.stringify(state.videos));
+      store('wt_vmeta', JSON.stringify({ yt: state.yt, lastSync: state.lastSync, at: state.vLoad }));
       if (state.tab === 'videos') render();
     }, function (err) { if (state.tab === 'videos') toast('Videos: ' + err.message); });
   }
   function vDate(v) { return parseDue(v['Date']); }
-  function vLive(v) { return /live/i.test(v['Facebook (FNF)'] || '') || /public/i.test(v['YouTube (Community Covenant)'] || ''); }
+  function vYt(v) { return v['YT status (live)'] || v['YouTube (Community Covenant)'] || ''; }
+  function vLive(v) { return /live/i.test(v['Facebook (FNF)'] || '') || /public/i.test(vYt(v)); }
   function vFiltered() {
     var q = state.q.toLowerCase(), t = today();
     return state.videos.filter(function (v) {
@@ -282,8 +287,11 @@
     var part = v['Part'] ? (/cover to cover/i.test(v['Series'] || '') ? ' · Day ' : ' · Part ') + esc(v['Part']) : '';
     var built = v['Built'] && v['Built'] !== 'Yes' ? '<span class="tag">Built: ' + esc(v['Built']) + '</span>' : '';
     var next = v['Next step'] && !/^done/i.test(v['Next step']) ? '<p class="vnext">Next: ' + esc(v['Next step']) + '</p>' : '';
-    return '<div class="item video"><div class="body"><p class="vmeta">' + esc(v['Time (ET)'] || '') + ' · ' + esc(v['Type'] || '') + ' · ' + esc(v['Series'] || '') + part + '</p>' +
-      '<p class="t">' + esc(v['Title']) + '</p><div class="meta">' + stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', v['YouTube (Community Covenant)']) + built + link + '</div>' + next + '</div></div>';
+    var live = v['YT status (live)'] ? stTag('YouTube now', v['YT status (live)']) : '';
+    var nums = v['YT views'] !== undefined && v['YT views'] !== '' ? '<span class="tag">' + esc(v['YT views']) + ' views · ' + esc(v['YT likes'] || 0) + ' likes · ' + esc(v['YT comments'] || 0) + ' comments</span>' : '';
+    return '<div class="item video" data-v="' + state.videos.indexOf(v) + '"><div class="body"><p class="vmeta">' + esc(v['Time (ET)'] || '') + ' · ' + esc(v['Type'] || '') + ' · ' + esc(v['Series'] || '') + part + '</p>' +
+      '<p class="t">' + esc(v['Title']) + '</p><div class="meta">' + stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', v['YouTube (Community Covenant)']) + live + nums + built + link + '</div>' + next +
+      '<p class="vtap">Tap for actions &rsaquo;</p></div></div>';
   }
   function renderVideos() {
     var sel = $('vseries'), names = {};
@@ -295,6 +303,13 @@
     var needYt = state.videos.filter(function (v) { return /needed/i.test(v['YouTube (Community Covenant)'] || ''); }).length;
     var onMe = state.videos.filter(function (v) { return /your ok|waiting on your/i.test(v['Next step'] || ''); }).length;
     $('summary').textContent = state.videos.length + ' videos · ' + upcoming + ' coming up · ' + needYt + ' need YouTube' + (onMe ? ' · ' + onMe + ' waiting on me' : '');
+    var ban = $('offline'), yt = state.yt, bits = [];
+    if (yt && yt.channels) yt.channels.forEach(function (c) { bits.push(c.title + ': ' + c.subs + ' subs, ' + c.views + ' views'); });
+    if (yt && yt.analytics28) bits.push('Last 28 days: ' + yt.analytics28.watchHours + ' watch hrs, ' + (yt.analytics28.subsNet >= 0 ? '+' : '') + yt.analytics28.subsNet + ' subs');
+    var ls = state.lastSync, bad = ls && ls.steps ? ls.steps.filter(function (x) { return !x.ok; }) : [];
+    if (ls) bits.push('Synced ' + ls.at + (bad.length ? ' · ' + bad[0].name + ': ' + bad[0].error : ''));
+    else bits.push('Not synced with YouTube yet');
+    if (ban) { ban.hidden = false; ban.textContent = bits.join(' · '); ban.className = 'offline' + (bad.length ? ' warn' : ' good'); }
     if (!state.videos.length) { $('list').innerHTML = '<p class="empty">' + (navigator.onLine ? 'Loading videos…' : 'Open this page once while online to load your videos.') + '</p>'; return; }
     if (!list.length) { $('list').innerHTML = '<p class="empty">No videos match.</p>'; return; }
     var html = '', last = '';
@@ -312,6 +327,46 @@
     render();
   });
   $('vseries').addEventListener('change', function (ev) { state.vseries = ev.target.value; render(); });
+
+  /* ---------- tap a video: go where the work is ---------- */
+  function ytIdOf(s) { var m = String(s || '').match(/(?:youtu\.be\/|[?&]v=|shorts\/|video\/|embed\/)([A-Za-z0-9_-]{11})/); return m ? m[1] : ''; }
+  function videoPrompt(v) {
+    return ['From my Work Tracker Videos page. Please finish this video task now.',
+      'Video: ' + (v['Title'] || ''), 'Series: ' + (v['Series'] || '') + (v['Part'] ? ' · ' + v['Part'] : ''),
+      'Date/time: ' + (v['Date'] || '') + ' ' + (v['Time (ET)'] || ''),
+      'Facebook (FNF): ' + (v['Facebook (FNF)'] || ''), 'YouTube: ' + vYt(v),
+      v['Next step'] ? 'Next step: ' + v['Next step'] : '',
+      v['YouTube link'] ? 'Link: ' + v['YouTube link'] : '',
+      'Read the shared work logs for Faith and Findings and YouTube growth first so nothing is duplicated or undone. Update the FNF Video Tracker when done. Ask me before anything public is posted that I have not already approved.'].filter(Boolean).join('\n');
+  }
+  function openVideo(v) {
+    var id = ytIdOf(v['YouTube link']), acts = [];
+    function a(label, url, cls) { if (url) acts.push('<a class="btn block' + (cls ? ' ' + cls : '') + '" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(label) + '</a>'); }
+    a('Watch on YouTube', safeUrl(v['YouTube link']));
+    if (id) { a('Edit in YouTube Studio', 'https://studio.youtube.com/video/' + id + '/edit'); a('This video\'s analytics', 'https://studio.youtube.com/video/' + id + '/analytics/tab-overview/period-default'); a('Comments (pin / reply)', 'https://studio.youtube.com/video/' + id + '/comments'); }
+    else a('YouTube Studio content', 'https://studio.youtube.com/');
+    a('Channel analytics', 'https://studio.youtube.com/channel/analytics');
+    a(/live/i.test(v['Facebook (FNF)'] || '') ? 'See it in the FNF group' : 'FNF scheduled posts', /live/i.test(v['Facebook (FNF)'] || '') ? 'https://www.facebook.com/groups/faithandfindingsforum' : 'https://www.facebook.com/groups/faithandfindingsforum/scheduled_posts');
+    a('Open the chat working on this', safeUrl(v['Chat link']));
+    a('Drive folder', safeUrl(v['Drive link']));
+    $('vaTitle').textContent = v['Title'] || 'Video';
+    $('vaMeta').innerHTML = stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', vYt(v)) +
+      (v['YT views'] !== undefined && v['YT views'] !== '' ? '<span class="tag">' + esc(v['YT views']) + ' views · ' + esc(v['YT likes'] || 0) + ' likes</span>' : '') +
+      (v['Next step'] ? '<p class="vnext">Next: ' + esc(v['Next step']) + '</p>' : '');
+    $('vaLinks').innerHTML = acts.join('');
+    state.vOpen = v; $('vsheet').hidden = false;
+  }
+  $('list').addEventListener('click', function (ev) {
+    var card = ev.target.closest('.item.video'); if (!card || ev.target.closest('a')) return;
+    var v = state.videos[Number(card.getAttribute('data-v'))]; if (v) openVideo(v);
+  });
+  $('vaClaude').addEventListener('click', function () {
+    var v = state.vOpen; if (!v) return;
+    window.open('https://claude.ai/new?q=' + encodeURIComponent(videoPrompt(v)), '_blank', 'noopener'); $('vsheet').hidden = true;
+  });
+  $('vaRefresh').addEventListener('click', function () { $('vsheet').hidden = true; syncNow(); });
+  $('vaClose').addEventListener('click', function () { $('vsheet').hidden = true; });
+  $('vsheet').addEventListener('click', function (ev) { if (ev.target === $('vsheet')) $('vsheet').hidden = true; });
 
   /* ---------- actions ---------- */
   function byId(id) { for (var i = 0; i < state.items.length; i++) if (String(state.items[i].id) === String(id)) return state.items[i]; return null; }
@@ -336,6 +391,7 @@
     $('fLink').value = it ? (it.link || '') : '';
     $('fMeta').textContent = it ? [it.noted && 'Noted ' + it.noted, it.source, it.updated && 'Updated ' + it.updated].filter(Boolean).join(' · ') : '';
     $('doRow').hidden = !it;
+    var gl = $('doLink'); if (gl) { var u = it && safeUrl(it.link); gl.hidden = !u; if (u) gl.href = u; }
     $('sheet').hidden = false;
     setTimeout(function () { $('fTask').focus(); }, 50);
   }
@@ -444,7 +500,21 @@
   $('addBtn').addEventListener('click', function () { openEditor(null); });
   $('cancelBtn').addEventListener('click', function () { $('sheet').hidden = true; });
   $('sheet').addEventListener('click', function (ev) { if (ev.target === $('sheet')) $('sheet').hidden = true; });
-  $('refreshBtn').addEventListener('click', function () { if (state.tab === 'videos') loadVideos(true); else load(); });
+  function syncNow() {
+    if (!navigator.onLine) { toast('Offline. Showing what was saved on this phone.'); return Promise.resolve(); }
+    var b = $('refreshBtn'); b.classList.add('spin'); toast('Syncing with Drive and YouTube…');
+    return flush().then(function () { return call({ action: 'sync' }); }).then(function (res) {
+      state.lastSync = res;
+      var bad = (res.steps || []).filter(function (x) { return !x.ok; });
+      var info = (res.steps || []).map(function (x) { return x.name + ': ' + (x.ok ? x.info : 'needs attention'); }).join(' · ');
+      toast(bad.length ? bad[0].name + ': ' + bad[0].error : 'Synced. ' + info);
+    }, function (err) { toast('Sync: ' + err.message); })
+      .then(function () { return Promise.all([load(), loadVideos(true)]); })
+      .then(function () { b.classList.remove('spin'); render(); }, function () { b.classList.remove('spin'); });
+  }
+  $('refreshBtn').addEventListener('click', syncNow);
+  // keep the Videos page current by itself while it is open
+  setInterval(function () { if (!document.hidden && state.pin && navigator.onLine && state.tab === 'videos') loadVideos(true); }, 5 * 60000);
   $('menuBtn').addEventListener('click', function () { $('menu').hidden = false; });
   $('closeMenu').addEventListener('click', function () { $('menu').hidden = true; });
   $('menu').addEventListener('click', function (ev) { if (ev.target === $('menu')) $('menu').hidden = true; });
