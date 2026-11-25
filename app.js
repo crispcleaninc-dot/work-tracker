@@ -264,6 +264,25 @@
   }
   function vDate(v) { return parseDue(v['Date']); }
   function vYt(v) { return v['YT status (live)'] || v['YouTube (Community Covenant)'] || ''; }
+  /* Is the video itself made yet? (separate from whether it is scheduled)
+     made = finished file exists · draft = being built (rendering, script, draft…)
+     none = not made yet. Uses the sheet's "Built" column; a video already on
+     YouTube/Facebook counts as made. */
+  function vProd(v) {
+    var b = String(v['Built'] || '').trim(), bl = b.toLowerCase();
+    var posted = safeUrl(v['YouTube link']) || /public|scheduled|live/i.test(v['YT status (live)'] || '') || /^(live|scheduled)/i.test(v['Facebook (FNF)'] || '');
+    if (/^(yes|done|made|built|ready|finished|complete)/.test(bl)) return { k: 'made', label: 'Video made' };
+    if (bl && !/^(no|—|-|none|not)/.test(bl)) return { k: 'draft', label: 'Draft — ' + b };
+    if (posted) return { k: 'made', label: 'Video made' };
+    if (/script|draft/i.test(v['Next step'] || '')) return { k: 'draft', label: 'Draft — script only' };
+    return { k: 'none', label: 'Not made yet' };
+  }
+  function vSched(v) { return /schedul/i.test((v['Facebook (FNF)'] || '') + ' ' + vYt(v)); }
+  function prodTag(v) {
+    var p = vProd(v);
+    var cls = p.k === 'made' ? 'ok' : p.k === 'draft' ? 'due' : 'over';
+    return '<span class="tag ' + cls + '">' + esc(p.label) + (p.k !== 'made' && vSched(v) ? ' · but scheduled!' : '') + '</span>';
+  }
   function vLive(v) { return /live/i.test(v['Facebook (FNF)'] || '') || /public/i.test(vYt(v)); }
   function vFiltered() {
     var q = state.q.toLowerCase(), t = today();
@@ -274,6 +293,7 @@
       if (state.vf === 'me' && next.indexOf('your ok') < 0 && next.indexOf('waiting on your') < 0) return false;
       if (state.vf === 'yt' && yt.indexOf('needed') < 0) return false;
       if (state.vf === 'live' && !vLive(v)) return false;
+      if (state.vf === 'make' && vProd(v).k === 'made') return false;
       if (q && [v['Title'], v['Series'], v['Type'], v['Next step']].join(' ').toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
@@ -285,12 +305,12 @@
   function videoHtml(v) {
     var link = safeUrl(v['YouTube link']) ? ' <a class="link" href="' + esc(v['YouTube link']) + '" target="_blank" rel="noopener">Watch on YouTube</a>' : '';
     var part = v['Part'] ? (/cover to cover/i.test(v['Series'] || '') ? ' · Day ' : ' · Part ') + esc(v['Part']) : '';
-    var built = v['Built'] && v['Built'] !== 'Yes' ? '<span class="tag">Built: ' + esc(v['Built']) + '</span>' : '';
+    var built = '';
     var next = v['Next step'] && !/^done/i.test(v['Next step']) ? '<p class="vnext">Next: ' + esc(v['Next step']) + '</p>' : '';
     var live = v['YT status (live)'] ? stTag('YouTube now', v['YT status (live)']) : '';
     var nums = v['YT views'] !== undefined && v['YT views'] !== '' ? '<span class="tag">' + esc(v['YT views']) + ' views · ' + esc(v['YT likes'] || 0) + ' likes · ' + esc(v['YT comments'] || 0) + ' comments</span>' : '';
     return '<div class="item video" data-v="' + state.videos.indexOf(v) + '"><div class="body"><p class="vmeta">' + esc(v['Time (ET)'] || '') + ' · ' + esc(v['Type'] || '') + ' · ' + esc(v['Series'] || '') + part + '</p>' +
-      '<p class="t">' + esc(v['Title']) + '</p><div class="meta">' + stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', v['YouTube (Community Covenant)']) + live + nums + built + link + '</div>' + next +
+      '<p class="t">' + esc(v['Title']) + '</p><div class="meta">' + prodTag(v) + stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', v['YouTube (Community Covenant)']) + live + nums + built + link + '</div>' + next +
       '<p class="vtap">Tap for actions &rsaquo;</p></div></div>';
   }
   function renderVideos() {
@@ -302,7 +322,9 @@
     var upcoming = state.videos.filter(function (v) { var d = vDate(v); return d && d >= t; }).length;
     var needYt = state.videos.filter(function (v) { return /needed/i.test(v['YouTube (Community Covenant)'] || ''); }).length;
     var onMe = state.videos.filter(function (v) { return /your ok|waiting on your/i.test(v['Next step'] || ''); }).length;
-    $('summary').textContent = state.videos.length + ' videos · ' + upcoming + ' coming up · ' + needYt + ' need YouTube' + (onMe ? ' · ' + onMe + ' waiting on me' : '');
+    var notMade = state.videos.filter(function (v) { var d = vDate(v); return d && d >= t && vProd(v).k !== 'made'; }).length;
+    var schedNotMade = state.videos.filter(function (v) { return vSched(v) && vProd(v).k !== 'made'; }).length;
+    $('summary').textContent = state.videos.length + ' videos · ' + upcoming + ' coming up · ' + notMade + ' coming up not made yet' + (schedNotMade ? ' (' + schedNotMade + ' scheduled but not made!)' : '') + ' · ' + needYt + ' need YouTube' + (onMe ? ' · ' + onMe + ' waiting on me' : '');
     var ban = $('offline'), yt = state.yt, bits = [];
     if (yt && yt.channels) yt.channels.forEach(function (c) { bits.push(c.title + ': ' + c.subs + ' subs, ' + c.views + ' views'); });
     if (yt && yt.analytics28) bits.push('Last 28 days: ' + yt.analytics28.watchHours + ' watch hrs, ' + (yt.analytics28.subsNet >= 0 ? '+' : '') + yt.analytics28.subsNet + ' subs');
@@ -337,7 +359,7 @@
     return ['From my Work Tracker Videos page. Please finish this video task now.',
       'Video: ' + (v['Title'] || ''), 'Series: ' + (v['Series'] || '') + (v['Part'] ? ' · ' + v['Part'] : ''),
       'Date/time: ' + (v['Date'] || '') + ' ' + (v['Time (ET)'] || ''),
-      'Facebook (FNF): ' + (v['Facebook (FNF)'] || ''), 'YouTube: ' + vYt(v),
+      'Video made?: ' + vProd(v).label, 'Facebook (FNF): ' + (v['Facebook (FNF)'] || ''), 'YouTube: ' + vYt(v),
       v['Next step'] ? 'Next step: ' + v['Next step'] : '',
       v['YouTube link'] ? 'Link: ' + v['YouTube link'] : '',
       'Read the shared work logs for Faith and Findings and YouTube growth first so nothing is duplicated or undone. Update the FNF Video Tracker when done. Ask me before anything public is posted that I have not already approved.'].filter(Boolean).join('\n');
@@ -353,7 +375,7 @@
     a(/live/i.test(v['Facebook (FNF)'] || '') ? 'See it in the FNF group' : 'FNF scheduled posts', /live/i.test(v['Facebook (FNF)'] || '') ? 'https://www.facebook.com/groups/faithandfindingsforum' : 'https://www.facebook.com/groups/faithandfindingsforum/scheduled_posts');
     a('Files in Drive (this day\'s folder)', safeUrl(v['Drive link']));
     $('vaTitle').textContent = v['Title'] || 'Video';
-    $('vaMeta').innerHTML = stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', vYt(v)) +
+    $('vaMeta').innerHTML = prodTag(v) + stTag('Facebook', v['Facebook (FNF)']) + stTag('YouTube', vYt(v)) +
       (v['YT views'] !== undefined && v['YT views'] !== '' ? '<span class="tag">' + esc(v['YT views']) + ' views · ' + esc(v['YT likes'] || 0) + ' likes</span>' : '') +
       (v['Next step'] ? '<p class="vnext">Next: ' + esc(v['Next step']) + '</p>' : '');
     $('vaLinks').innerHTML = acts.join('');
